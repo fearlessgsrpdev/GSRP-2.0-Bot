@@ -2,7 +2,7 @@ const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('disc
 const { canUseCommand, BOT_COMMANDS_CHANNEL } = require('./channelcheck');
 const { SERVERS, GLOBAL_BAN_ROLES } = require('./globalconfig');
 
-// Role hierarchy — higher index = higher rank
+// Hierarchy from lowest to highest
 const ROLE_HIERARCHY = [
   '1491647546525880487', // Admin
   '1491647546525880484', // Sr. Admin
@@ -11,7 +11,8 @@ const ROLE_HIERARCHY = [
   '1491647546525880480', // Management
 ];
 
-function getHighestRole(member) {
+function getHighestRank(member) {
+  if (!member) return -1;
   for (let i = ROLE_HIERARCHY.length - 1; i >= 0; i--) {
     if (member.roles.cache.has(ROLE_HIERARCHY[i])) return i;
   }
@@ -31,22 +32,26 @@ module.exports = {
       return interaction.reply({ content: `🚫 You can only use this command in <#${BOT_COMMANDS_CHANNEL}>.`, ephemeral: true });
 
     const targetUser = interaction.options.getUser('user');
-    const targetMember = interaction.options.getMember('user');
     const reason = interaction.options.getString('reason') || 'No reason provided';
 
     if (!targetUser)
       return interaction.reply({ content: '⚠️ User not found.', ephemeral: true });
 
+    // Check executor has permission
     const canBan = GLOBAL_BAN_ROLES.some(r => interaction.member.roles.cache.has(r));
     if (!canBan)
       return interaction.reply({ content: '🚫 You need to be **Head Admin or higher** to use this command.', ephemeral: true });
 
-    // Hierarchy check — cannot ban someone equal or higher rank
-    const executorRank = getHighestRole(interaction.member);
-    const targetRank = targetMember ? getHighestRole(targetMember) : -1;
+    // Fetch target member from the main server to check their roles
+    const mainGuild = await client.guilds.fetch(interaction.guild.id);
+    const targetMember = await mainGuild.members.fetch(targetUser.id).catch(() => null);
 
-    if (targetRank >= executorRank && targetRank !== -1)
-      return interaction.reply({ content: '🚫 You cannot ban someone with an equal or higher role than you.', ephemeral: true });
+    const executorRank = getHighestRank(interaction.member);
+    const targetRank = getHighestRank(targetMember);
+
+    // Block if target has equal or higher rank
+    if (targetMember && targetRank >= executorRank)
+      return interaction.reply({ content: `🚫 You cannot ban someone with an equal or higher role than you.`, ephemeral: true });
 
     await interaction.deferReply();
 
