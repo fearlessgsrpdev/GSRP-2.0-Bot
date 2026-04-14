@@ -1,6 +1,6 @@
 const {
   SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
-  ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder
+  ModalBuilder, TextInputBuilder, TextInputStyle, EmbedBuilder, MessageFlags
 } = require('discord.js');
 
 const BOT_COMMANDS_CHANNEL = '1491647555287912522';
@@ -24,7 +24,6 @@ const LABEL_MAP = {
   'Removal_with_Ban': '🔨 Removal with Ban',
 };
 
-// Store session data per user
 const sessions = new Map();
 
 function buildPreviewEmbed(type, data, user) {
@@ -68,10 +67,12 @@ function buildModal(type, existing = {}) {
   return modal;
 }
 
-const actionRow = () => new ActionRowBuilder().addComponents(
-  new ButtonBuilder().setCustomId('punish_edit').setLabel('✏️  Edit & Resubmit').setStyle(ButtonStyle.Secondary),
-  new ButtonBuilder().setCustomId('punish_confirm').setLabel('✅  Confirm & Post').setStyle(ButtonStyle.Success),
-);
+function actionRow() {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId('punish_edit').setLabel('✏️  Edit & Resubmit').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId('punish_confirm').setLabel('✅  Confirm & Post').setStyle(ButtonStyle.Success),
+  );
+}
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -80,7 +81,7 @@ module.exports = {
 
   async execute(interaction) {
     if (interaction.channelId !== BOT_COMMANDS_CHANNEL)
-      return interaction.reply({ content: `🚫 This command can only be used in <#${BOT_COMMANDS_CHANNEL}>.`, ephemeral: true });
+      return interaction.reply({ content: `🚫 This command can only be used in <#${BOT_COMMANDS_CHANNEL}>.`, flags: MessageFlags.Ephemeral });
 
     const typeRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('punish_type_Strike').setLabel('⚠️  Strike').setStyle(ButtonStyle.Primary),
@@ -91,23 +92,23 @@ module.exports = {
     await interaction.reply({
       embeds: [new EmbedBuilder().setTitle('📋 Punishment Log').setColor(0xFF8C00).setDescription('Select the punishment type below to begin.')],
       components: [typeRow],
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 
-  // Handle all button and modal interactions for /punish
-  async handleInteraction(interaction, client) {
+  async handleInteraction(interaction) {
     const userId = interaction.user.id;
+    const id = interaction.customId || '';
 
-    // ── Type button clicked ──────────────────────────────────────────────────
-    if (interaction.isButton() && interaction.customId.startsWith('punish_type_')) {
-      const type = interaction.customId.replace('punish_type_', '');
+    // Type button
+    if (interaction.isButton() && id.startsWith('punish_type_')) {
+      const type = id.replace('punish_type_', '');
 
       if (type === 'Strike') {
-        const member = interaction.member;
-        const hasRole = STRIKE_ROLES.some(r => member.roles.cache.has(r));
-        if (!hasRole)
-          return interaction.reply({ content: '🚫 You do not have permission to issue a **Strike**.', ephemeral: true });
+        const hasRole = STRIKE_ROLES.some(r => interaction.member.roles.cache.has(r));
+        if (!hasRole) {
+          return interaction.reply({ content: '🚫 You do not have permission to issue a **Strike**.', flags: MessageFlags.Ephemeral });
+        }
       }
 
       sessions.set(userId, { type, data: {} });
@@ -115,9 +116,9 @@ module.exports = {
       return;
     }
 
-    // ── Modal submitted ──────────────────────────────────────────────────────
-    if (interaction.isModalSubmit() && interaction.customId.startsWith('punish_modal_')) {
-      const type = interaction.customId.replace('punish_modal_', '');
+    // Modal submitted
+    if (interaction.isModalSubmit() && id.startsWith('punish_modal_')) {
+      const type = id.replace('punish_modal_', '');
       const data = {
         your_id: interaction.fields.getTextInputValue('your_id'),
         offender_id: interaction.fields.getTextInputValue('offender_id'),
@@ -128,29 +129,27 @@ module.exports = {
 
       sessions.set(userId, { type, data });
 
-      const preview = buildPreviewEmbed(type, data, interaction.user);
-
       await interaction.reply({
         content: '👀 **Preview** — Review your log before posting:',
-        embeds: [preview],
+        embeds: [buildPreviewEmbed(type, data, interaction.user)],
         components: [actionRow()],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    // ── Edit button clicked ──────────────────────────────────────────────────
-    if (interaction.isButton() && interaction.customId === 'punish_edit') {
+    // Edit button
+    if (interaction.isButton() && id === 'punish_edit') {
       const session = sessions.get(userId);
-      if (!session) return interaction.reply({ content: '⚠️ Session expired. Please run `/punish` again.', ephemeral: true });
+      if (!session) return interaction.reply({ content: '⚠️ Session expired. Please run `/punish` again.', flags: MessageFlags.Ephemeral });
       await interaction.showModal(buildModal(session.type, session.data));
       return;
     }
 
-    // ── Confirm button clicked ───────────────────────────────────────────────
-    if (interaction.isButton() && interaction.customId === 'punish_confirm') {
+    // Confirm button
+    if (interaction.isButton() && id === 'punish_confirm') {
       const session = sessions.get(userId);
-      if (!session) return interaction.reply({ content: '⚠️ Session expired. Please run `/punish` again.', ephemeral: true });
+      if (!session) return interaction.reply({ content: '⚠️ Session expired. Please run `/punish` again.', flags: MessageFlags.Ephemeral });
 
       try {
         const logChannel = await interaction.guild.channels.fetch(PUNISHMENT_LOG_CHANNEL);
@@ -158,6 +157,7 @@ module.exports = {
         finalEmbed.setFooter({ text: `Logged by ${interaction.user.tag} • ${interaction.user.id}` });
         await logChannel.send({ embeds: [finalEmbed] });
         sessions.delete(userId);
+
         await interaction.update({
           content: '',
           embeds: [new EmbedBuilder().setColor(0x57F287).setDescription('✅ Punishment log submitted successfully!')],
@@ -165,7 +165,7 @@ module.exports = {
         });
       } catch (err) {
         console.error('Punishment log failed:', err);
-        await interaction.reply({ content: '❌ Failed to submit. Please contact an administrator.', ephemeral: true });
+        await interaction.reply({ content: '❌ Failed to submit. Please contact an administrator.', flags: MessageFlags.Ephemeral });
       }
       return;
     }
