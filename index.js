@@ -8,9 +8,9 @@ const CLIENT_ID = process.env.CLIENT_ID || '1493061113259229214';
 
 const MAIN_SERVER_ID = '1491647546387333140';
 const SUBDEPT_SERVER_IDS = [
-  '1458626277991780434', // DOJ
-  '1458632972864454709', // DPS
-  '1461148296922796296', // DSO
+  '1458626277991780434',
+  '1458632972864454709',
+  '1461148296922796296',
 ];
 
 const SKIP_FILES = ['logger.js', 'channelcheck.js', 'globalconfig.js'];
@@ -61,6 +61,12 @@ const guildCommandMap = new Map();
 guildCommandMap.set(MAIN_SERVER_ID, mainCmds);
 for (const id of SUBDEPT_SERVER_IDS) guildCommandMap.set(id, subdeptCmds);
 
+// Load punish handler separately for button/modal routing
+let punishHandler = null;
+try {
+  punishHandler = require('./commands/punish');
+} catch (e) {}
+
 async function registerCommands(guildId, commandsData) {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   try {
@@ -75,7 +81,6 @@ client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   client.user.setActivity('/help | GSRP Bot');
 
-  // Clear old global commands to remove duplicates
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
   console.log('🧹 Cleared global commands');
@@ -86,12 +91,25 @@ client.once('ready', async () => {
   }
 
   console.log('🔄 All commands registered!');
-
-  // Register onboarding voice listener
   registerOnboarding(client);
 });
 
 client.on('interactionCreate', async (interaction) => {
+  // Route punish button/modal interactions
+  if (punishHandler?.handleInteraction) {
+    const id = interaction.customId || '';
+    if (
+      id.startsWith('punish_type_') ||
+      id.startsWith('punish_modal_') ||
+      id === 'punish_edit' ||
+      id === 'punish_confirm'
+    ) {
+      try { await punishHandler.handleInteraction(interaction, client); } catch (err) { console.error('Punish handler error:', err); }
+      return;
+    }
+  }
+
+  // Autocomplete
   if (interaction.isAutocomplete()) {
     const commands = guildCommandMap.get(interaction.guildId) || mainCmds;
     const command = commands.get(interaction.commandName);
@@ -106,10 +124,7 @@ client.on('interactionCreate', async (interaction) => {
   const commands = guildCommandMap.get(interaction.guildId) || mainCmds;
   const command = commands.get(interaction.commandName);
 
-  if (!command) {
-    console.log(`Unknown command: ${interaction.commandName} in guild ${interaction.guildId}`);
-    return;
-  }
+  if (!command) return;
 
   try {
     await command.execute(interaction, client);
@@ -125,5 +140,4 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 client.on('error', err => console.error('Client error:', err));
-
 client.login(TOKEN);
