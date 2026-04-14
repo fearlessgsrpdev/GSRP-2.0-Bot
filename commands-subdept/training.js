@@ -1,0 +1,128 @@
+const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+
+// Server-specific config
+const SERVER_CONFIG = {
+  '1458626277991780434': { // DOJ
+    trainingChannel: '1458632250290864250',
+    allowedRoles: ['1458632119738695814', '1458632136134492170'], // Supervisory Agent, Commander
+    color: 0x1ABC9C,
+    name: 'DOJ',
+  },
+  '1458632972864454709': { // DPS
+    trainingChannel: '1458633641218277429',
+    allowedRoles: ['1458633467758645258', '1458633485416665161'], // Executive Officer, Commander
+    color: 0x3498DB,
+    name: 'DPS',
+  },
+  '1461148296922796296': { // DSO
+    trainingChannel: '1461148307031326815',
+    allowedRoles: ['1461148297313128466', '1461148297329639485'], // Executive Officer, Commander
+    color: 0xE67E22,
+    name: 'DSO',
+  },
+};
+
+function parseTimeCST(timeStr) {
+  const now = new Date();
+  const match12 = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  const match24 = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
+  let hours, minutes;
+  if (match12) {
+    hours = parseInt(match12[1]);
+    minutes = parseInt(match12[2]);
+    const period = match12[3].toUpperCase();
+    if (period === 'PM' && hours !== 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
+  } else if (match24) {
+    hours = parseInt(match24[1]);
+    minutes = parseInt(match24[2]);
+  } else { return null; }
+
+  const utcDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hours + 6, minutes, 0));
+  if (utcDate.getTime() < Date.now()) utcDate.setUTCDate(utcDate.getUTCDate() + 1);
+  return Math.floor(utcDate.getTime() / 1000);
+}
+
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('training')
+    .setDescription('Announce a training session')
+    .addStringOption(o => o.setName('type').setDescription('Type of training (e.g. Firearms Qualification, Detective Training)').setRequired(true))
+    .addStringOption(o => o.setName('time').setDescription('Start time in CST — e.g. "3:00 PM" or "15:00"').setRequired(true))
+    .addStringOption(o => o.setName('notes').setDescription('Additional notes for trainees').setRequired(false)),
+
+  async execute(interaction) {
+    const guildId = interaction.guild.id;
+    const config = SERVER_CONFIG[guildId];
+
+    if (!config)
+      return interaction.reply({ content: '❌ This command is not configured for this server.', ephemeral: true });
+
+    // Check if user has an allowed role
+    const hasPermission = config.allowedRoles.some(r => interaction.member.roles.cache.has(r));
+    if (!hasPermission)
+      return interaction.reply({ content: '🚫 You don\'t have permission to announce trainings.', ephemeral: true });
+
+    const type = interaction.options.getString('type');
+    const timeStr = interaction.options.getString('time');
+    const notes = interaction.options.getString('notes');
+    const trainer = interaction.member;
+
+    const timestamp = parseTimeCST(timeStr);
+    if (!timestamp)
+      return interaction.reply({ content: '⚠️ Invalid time format. Use `3:00 PM` or `15:00`.', ephemeral: true });
+
+    const embed = new EmbedBuilder()
+      .setTitle(`📋 ${config.name} Training — ${type}`)
+      .setColor(config.color)
+      .setDescription('> ⏰ **Make sure to join the TeamSpeak channel 10 minutes before the start time!**' + (notes ? `\n\n📋 **Notes:** ${notes}` : ''))
+      .addFields(
+        { name: '👮 Trainer', value: `${trainer.user}`, inline: false },
+        { name: '🕐 Start Time', value: `<t:${timestamp}:F> (<t:${timestamp}:R>)`, inline: false },
+        { name: '👥 Trainees', value: '*No one has joined yet.*', inline: false },
+      )
+      .setFooter({ text: 'Click the button below to join this training session.' })
+      .setTimestamp();
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`join_training_${interaction.id}`).setLabel('✅  Join Training').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`leave_training_${interaction.id}`).setLabel('❌  Leave Training').setStyle(ButtonStyle.Danger),
+    );
+
+    const channel = await interaction.guild.channels.fetch(config.trainingChannel);
+    const trainingMessage = await channel.send({ embeds: [embed], components: [row] });
+    await interaction.reply({ content: `✅ Training announced in <#${config.trainingChannel}>!`, ephemeral: true });
+
+    const trainees = new Map();
+    const collector = trainingMessage.createMessageComponentCollector({ time: 24 * 60 * 60 * 1000 });
+
+    collector.on('collect', async (btnInteraction) => {
+      const userId = btnInteraction.user.id;
+      const isJoin = btnInteraction.customId.startsWith('join_training_');
+      if (isJoin) {
+        if (trainees.has(userId)) return btnInteraction.reply({ content: '⚠️ You already joined!', ephemeral: true });
+        trainees.set(userId, btnInteraction.user);
+        await btnInteraction.reply({ content: '✅ You joined the training!', ephemeral: true });
+      } else {
+        if (!trainees.has(userId)) return btnInteraction.reply({ content: '⚠️ You are not in this training.', ephemeral: true });
+        trainees.delete(userId);
+        await btnInteraction.reply({ content: '❌ You left the training.', ephemeral: true });
+      }
+      const traineeList = trainees.size > 0 ? [...trainees.values()].map(u => `<@${u.id}>`).join('\n') : '*No one has joined yet.*';
+      const updatedEmbed = EmbedBuilder.from(trainingMessage.embeds[0]).setFields(
+        { name: '👮 Trainer', value: `${trainer.user}`, inline: false },
+        { name: '🕐 Start Time', value: `<t:${timestamp}:F> (<t:${timestamp}:R>)`, inline: false },
+        { name: `👥 Trainees (${trainees.size})`, value: traineeList, inline: false },
+      );
+      await trainingMessage.edit({ embeds: [updatedEmbed], components: [row] });
+    });
+
+    collector.on('end', async () => {
+      const disabledRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`join_training_${interaction.id}`).setLabel('✅  Join Training').setStyle(ButtonStyle.Success).setDisabled(true),
+        new ButtonBuilder().setCustomId(`leave_training_${interaction.id}`).setLabel('❌  Leave Training').setStyle(ButtonStyle.Danger).setDisabled(true),
+      );
+      await trainingMessage.edit({ components: [disabledRow] }).catch(() => {});
+    });
+  },
+};
