@@ -1,6 +1,11 @@
 const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
-const { canUseCommand, BOT_COMMANDS_CHANNEL } = require('./channelcheck');
 const { SERVERS, GLOBAL_BAN_ROLES } = require('./globalconfig');
+
+const LOG_CHANNELS = {
+  '1458626277991780434': '1458632230023987290',
+  '1458632972864454709': '1458633610914697266',
+  '1461148296922796296': '1461148306745987176',
+};
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -11,9 +16,6 @@ module.exports = {
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 
   async execute(interaction, client) {
-    if (!canUseCommand(interaction))
-      return interaction.reply({ content: `🚫 You can only use this command in <#${BOT_COMMANDS_CHANNEL}>.`, ephemeral: true });
-
     const targetUser = interaction.options.getUser('user');
     const reason = interaction.options.getString('reason') || 'No reason provided';
 
@@ -26,25 +28,12 @@ module.exports = {
 
     await interaction.deferReply();
 
-    // Save ban history
-    const guildId = interaction.guild.id;
-    const userId = targetUser.id;
-    if (!client.banHistory[guildId]) client.banHistory[guildId] = {};
-    if (!client.banHistory[guildId][userId]) client.banHistory[guildId][userId] = [];
-    client.banHistory[guildId][userId].push({
-      bannedBy: interaction.user.tag,
-      reason,
-      date: new Date().toISOString(),
-      global: true,
-    });
-    client.saveBanHistory();
-
     const results = [];
 
     for (const [serverName, serverInfo] of Object.entries(SERVERS)) {
       try {
         const guild = await client.guilds.fetch(serverInfo.id);
-        await guild.members.ban(userId, { reason: `[Global Ban by ${interaction.user.tag}] ${reason}` });
+        await guild.members.ban(targetUser.id, { reason: `[Global Ban by ${interaction.user.tag}] ${reason}` });
         results.push(`✅ **${serverName.toUpperCase()}**`);
 
         try {
@@ -54,7 +43,7 @@ module.exports = {
               .setTitle('🌐 Global Ban Applied')
               .setColor(0xED4245)
               .addFields(
-                { name: 'User', value: `${targetUser.tag} (${userId})`, inline: true },
+                { name: 'User', value: `${targetUser.tag} (${targetUser.id})`, inline: true },
                 { name: 'Banned By', value: `${interaction.user.tag}`, inline: true },
                 { name: 'Origin Server', value: interaction.guild.name, inline: true },
                 { name: 'Reason', value: reason },
@@ -75,7 +64,7 @@ module.exports = {
         .setColor(0xED4245)
         .setDescription(`**${targetUser.tag}** has been banned from all servers.`)
         .addFields(
-          { name: 'User ID', value: userId, inline: true },
+          { name: 'User ID', value: targetUser.id, inline: true },
           { name: 'Banned By', value: `${interaction.user}`, inline: true },
           { name: 'Reason', value: reason },
           { name: 'Server Results', value: results.join('\n') },
