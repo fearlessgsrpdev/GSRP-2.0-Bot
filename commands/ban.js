@@ -2,21 +2,22 @@ const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('disc
 const { canUseCommand, BOT_COMMANDS_CHANNEL } = require('./channelcheck');
 const { SERVERS, GLOBAL_BAN_ROLES } = require('./globalconfig');
 
-// Hierarchy from lowest to highest
+// Hierarchy from lowest (0) to highest (4)
 const ROLE_HIERARCHY = [
-  '1491647546525880487', // Admin
-  '1491647546525880484', // Sr. Admin
-  '1491647546525880481', // Head Admin
-  '1491647546387333147', // Staff Manager
-  '1491647546525880480', // Management
+  '1491647546525880487', // Admin        — rank 0
+  '1491647546525880484', // Sr. Admin    — rank 1
+  '1491647546525880481', // Head Admin   — rank 2
+  '1491647546387333147', // Staff Manager — rank 3
+  '1491647546525880480', // Management   — rank 4
 ];
 
 function getHighestRank(member) {
   if (!member) return -1;
-  for (let i = ROLE_HIERARCHY.length - 1; i >= 0; i--) {
-    if (member.roles.cache.has(ROLE_HIERARCHY[i])) return i;
+  let highest = -1;
+  for (let i = 0; i < ROLE_HIERARCHY.length; i++) {
+    if (member.roles.cache.has(ROLE_HIERARCHY[i])) highest = i;
   }
-  return -1;
+  return highest;
 }
 
 module.exports = {
@@ -37,24 +38,41 @@ module.exports = {
     if (!targetUser)
       return interaction.reply({ content: '⚠️ User not found.', ephemeral: true });
 
-    // Check executor has permission
+    // Prevent self-ban
+    if (targetUser.id === interaction.user.id)
+      return interaction.reply({ content: '🚫 You cannot ban yourself.', ephemeral: true });
+
+    // Check executor has Head Admin+ permission
     const canBan = GLOBAL_BAN_ROLES.some(r => interaction.member.roles.cache.has(r));
     if (!canBan)
       return interaction.reply({ content: '🚫 You need to be **Head Admin or higher** to use this command.', ephemeral: true });
 
-    // Fetch target member from the main server to check their roles
-    const mainGuild = await client.guilds.fetch(interaction.guild.id);
-    const targetMember = await mainGuild.members.fetch(targetUser.id).catch(() => null);
+    // Fetch target from main server to get their roles
+    let targetMember = null;
+    try {
+      targetMember = await interaction.guild.members.fetch(targetUser.id);
+    } catch {
+      // User not in main server — allow ban to proceed
+      targetMember = null;
+    }
 
     const executorRank = getHighestRank(interaction.member);
     const targetRank = getHighestRank(targetMember);
 
-    // Block if target has equal or higher rank
-    if (targetMember && targetRank >= executorRank)
-      return interaction.reply({ content: `🚫 You cannot ban someone with an equal or higher role than you.`, ephemeral: true });
+    console.log(`Ban attempt: executor rank ${executorRank}, target rank ${targetRank}`);
+
+    // If target has a rank and it's >= executor's rank, block it
+    if (targetMember !== null && targetRank >= executorRank && targetRank >= 0) {
+      const rankNames = ['Admin', 'Sr. Admin', 'Head Admin', 'Staff Manager', 'Management'];
+      return interaction.reply({
+        content: `🚫 You cannot ban **${targetUser.tag}** — they are ${targetRank > executorRank ? 'higher' : 'the same'} rank as you (${rankNames[targetRank]}).`,
+        ephemeral: true
+      });
+    }
 
     await interaction.deferReply();
 
+    // Save ban history
     const guildId = interaction.guild.id;
     const userId = targetUser.id;
     if (!client.banHistory[guildId]) client.banHistory[guildId] = {};
