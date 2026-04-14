@@ -1,0 +1,113 @@
+const { EmbedBuilder } = require('discord.js');
+
+const ONBOARDING_VC_ID = '1491647549482864704';
+
+const PING_CHANNELS = [
+  { channelId: '1491647553492746400', roleId: '1491647546525880488', name: 'Sergeant' },
+  { channelId: '1491647553492746401', roleId: '1491647546525880485', name: 'Lieutenant' },
+  { channelId: '1491647554243264543', roleId: '1491647546525880482', name: 'Captain' },
+];
+
+// Track active onboarding sessions: userId -> { joinTime, intervalId, messageIds }
+const activeSessions = new Map();
+
+async function startOnboarding(client, member) {
+  if (activeSessions.has(member.id)) return;
+
+  const joinTime = Date.now();
+  const joinTimestamp = Math.floor(joinTime / 1000);
+
+  console.log(`🔔 Onboarding started for ${member.user.tag}`);
+
+  const sentMessages = [];
+
+  // Send ping + embed to each channel
+  for (const { channelId, roleId, name } of PING_CHANNELS) {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel) continue;
+
+      const embed = new EmbedBuilder()
+        .setTitle('🚨  There is currently an Onboarding waiting!')
+        .setColor(0xFF8C00)
+        .setDescription(`A new member is waiting in the Onboarding voice channel and needs to be processed.`)
+        .addFields(
+          { name: '👤  Member', value: `${member.user}`, inline: true },
+          { name: '🪪  Username', value: `${member.user.tag}`, inline: true },
+          { name: '\u200B', value: '\u200B', inline: true },
+          { name: '📅  Account Created', value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:F>`, inline: true },
+          { name: '📥  Joined Server', value: `<t:${Math.floor(member.joinedTimestamp / 1000)}:F>`, inline: true },
+          { name: '\u200B', value: '\u200B', inline: true },
+          { name: '⏳  Waiting Since', value: `<t:${joinTimestamp}:R>`, inline: true },
+          { name: '🎙️  Voice Channel', value: `<#${ONBOARDING_VC_ID}>`, inline: true },
+        )
+        .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
+        .setFooter({ text: `Please attend to this member as soon as possible • ${name} Notification` })
+        .setTimestamp();
+
+      const msg = await channel.send({ content: `<@&${roleId}>`, embeds: [embed] });
+      sentMessages.push({ channelId, messageId: msg.id });
+    } catch (err) {
+      console.error(`Failed to send onboarding ping to ${name} channel:`, err.message);
+    }
+  }
+
+  activeSessions.set(member.id, { joinTime, sentMessages });
+}
+
+async function endOnboarding(client, member) {
+  const session = activeSessions.get(member.id);
+  if (!session) return;
+
+  console.log(`✅ Onboarding ended for ${member.user.tag}`);
+
+  const waitTime = Math.floor((Date.now() - session.joinTime) / 1000);
+  const minutes = Math.floor(waitTime / 60);
+  const seconds = waitTime % 60;
+  const waitLabel = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+
+  // Update each embed to show session ended
+  for (const { channelId, messageId } of session.sentMessages) {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      const msg = await channel.messages.fetch(messageId);
+
+      const updatedEmbed = EmbedBuilder.from(msg.embeds[0])
+        .setTitle('✅  Onboarding Completed')
+        .setColor(0x57F287)
+        .setDescription(`This onboarding session has ended.`)
+        .addFields(
+          { name: '👤  Member', value: `${member.user}`, inline: true },
+          { name: '⏱️  Total Wait Time', value: waitLabel, inline: true },
+        )
+        .setFooter({ text: 'Onboarding session has ended.' })
+        .setTimestamp();
+
+      await msg.edit({ embeds: [updatedEmbed] });
+    } catch (err) {
+      console.error(`Failed to update onboarding message:`, err.message);
+    }
+  }
+
+  activeSessions.delete(member.id);
+}
+
+function registerOnboarding(client) {
+  client.on('voiceStateUpdate', async (oldState, newState) => {
+    const member = newState.member || oldState.member;
+    if (!member || member.user.bot) return;
+
+    const joinedOnboarding = newState.channelId === ONBOARDING_VC_ID;
+    const leftOnboarding = oldState.channelId === ONBOARDING_VC_ID && newState.channelId !== ONBOARDING_VC_ID;
+
+    if (joinedOnboarding) {
+      await startOnboarding(client, member);
+    } else if (leftOnboarding) {
+      await endOnboarding(client, member);
+    }
+  });
+
+  console.log('✅ Onboarding listener registered');
+}
+
+module.exports = { registerOnboarding };
