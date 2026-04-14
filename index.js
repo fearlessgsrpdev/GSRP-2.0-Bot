@@ -32,7 +32,6 @@ client.saveBanHistory = () => {
   fs.writeFileSync(BAN_HISTORY_FILE, JSON.stringify(client.banHistory, null, 2));
 };
 
-// Load commands from folder into a Collection
 function loadCommands(folderName) {
   const commands = new Collection();
   const commandsData = [];
@@ -53,11 +52,9 @@ function loadCommands(folderName) {
   return { commands, commandsData };
 }
 
-// Load both command sets upfront
 const { commands: mainCmds, commandsData: mainData } = loadCommands('commands');
 const { commands: subdeptCmds, commandsData: subdeptData } = loadCommands('commands-subdept');
 
-// Map each guild to its command collection
 const guildCommandMap = new Map();
 guildCommandMap.set(MAIN_SERVER_ID, mainCmds);
 for (const id of SUBDEPT_SERVER_IDS) guildCommandMap.set(id, subdeptCmds);
@@ -75,15 +72,22 @@ async function registerCommands(guildId, commandsData) {
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
   client.user.setActivity('/help | GSRP Bot');
+
+  // Clear old global commands to remove duplicates
+  const rest = new REST({ version: '10' }).setToken(TOKEN);
+  await rest.put(Routes.applicationCommands(CLIENT_ID), { body: [] });
+  console.log('🧹 Cleared global commands');
+
+  // Register per-guild commands
   await registerCommands(MAIN_SERVER_ID, mainData);
   for (const guildId of SUBDEPT_SERVER_IDS) {
     await registerCommands(guildId, subdeptData);
   }
+
   console.log('🔄 All commands registered!');
 });
 
 client.on('interactionCreate', async (interaction) => {
-  // Autocomplete
   if (interaction.isAutocomplete()) {
     const commands = guildCommandMap.get(interaction.guildId) || mainCmds;
     const command = commands.get(interaction.commandName);
@@ -95,7 +99,6 @@ client.on('interactionCreate', async (interaction) => {
 
   if (!interaction.isChatInputCommand()) return;
 
-  // Get command set for this guild, fall back to main
   const commands = guildCommandMap.get(interaction.guildId) || mainCmds;
   const command = commands.get(interaction.commandName);
 
