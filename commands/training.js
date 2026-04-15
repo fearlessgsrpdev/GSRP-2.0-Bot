@@ -14,10 +14,13 @@ const TRAINING_LABELS = {
   spike_cert:  '📌 Spike Certification',
 };
 
+// Parse time string as CST (UTC-6) and return Unix timestamp
 function parseTimeCST(timeStr) {
+  const now = new Date();
   const match12 = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
   const match24 = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
   let hours, minutes;
+
   if (match12) {
     hours = parseInt(match12[1]);
     minutes = parseInt(match12[2]);
@@ -27,19 +30,24 @@ function parseTimeCST(timeStr) {
   } else if (match24) {
     hours = parseInt(match24[1]);
     minutes = parseInt(match24[2]);
-  } else { return null; }
+  } else {
+    return null;
+  }
 
-  // Get current date in CST (UTC-6)
-  const nowCST = new Date(Date.now() - 6 * 60 * 60 * 1000);
-  const year = nowCST.getUTCFullYear();
-  const month = nowCST.getUTCMonth();
-  const day = nowCST.getUTCDate();
+  // CST = UTC-6
+  // To convert CST time to UTC: add 6 hours
+  // Example: 10:00 PM CST = 10 + 6 = 04:00 UTC next day
+  const utcDate = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    hours + 6,
+    minutes,
+    0
+  ));
 
-  // Build the target time as UTC (CST input + 6hrs offset)
-  const utcDate = new Date(Date.UTC(year, month, day, hours + 6, minutes, 0));
-
-  // Only roll to tomorrow if already passed by more than 1 minute
-  if (utcDate.getTime() < Date.now() - 60_000) {
+  // If the computed UTC time is in the past, roll to tomorrow
+  if (utcDate.getTime() <= Date.now()) {
     utcDate.setUTCDate(utcDate.getUTCDate() + 1);
   }
 
@@ -50,13 +58,14 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('training')
     .setDescription('Announce a training session')
-    .addStringOption(o => o.setName('type').setDescription('Type of training').setRequired(true)
-      .addChoices(
-        { name: 'Basic Cadet → Trooper Training', value: 'basic_cadet' },
-        { name: 'FTO Master Training (Sergeant+)', value: 'fto_master' },
-        { name: 'Spike Certification (Trooper+)', value: 'spike_cert' },
-      ))
-    .addStringOption(o => o.setName('time').setDescription('Start time in CST — e.g. "3:00 PM" or "15:00"').setRequired(true))
+    .addStringOption(o =>
+      o.setName('type').setDescription('Type of training').setRequired(true)
+        .addChoices(
+          { name: 'Basic Cadet → Trooper Training', value: 'basic_cadet' },
+          { name: 'FTO Master Training (Sergeant+)', value: 'fto_master' },
+          { name: 'Spike Certification (Trooper+)', value: 'spike_cert' },
+        ))
+    .addStringOption(o => o.setName('time').setDescription('Start time in CST — e.g. "10:00 PM" or "22:00"').setRequired(true))
     .addStringOption(o => o.setName('notes').setDescription('Additional notes for trainees').setRequired(false)),
 
   async execute(interaction) {
@@ -67,7 +76,7 @@ module.exports = {
 
     const timestamp = parseTimeCST(timeStr);
     if (!timestamp)
-      return interaction.reply({ content: '⚠️ Invalid time format. Use `3:00 PM` or `15:00`.', ephemeral: true });
+      return interaction.reply({ content: '⚠️ Invalid time format. Use `10:00 PM` or `22:00`.', ephemeral: true });
 
     const embed = new EmbedBuilder()
       .setTitle(TRAINING_LABELS[type])
