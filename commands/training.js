@@ -14,9 +14,7 @@ const TRAINING_LABELS = {
   spike_cert:  '📌 Spike Certification',
 };
 
-// Parse time string as CST (UTC-6) and return Unix timestamp
 function parseTimeCST(timeStr) {
-  const now = new Date();
   const match12 = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
   const match24 = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
   let hours, minutes;
@@ -34,24 +32,29 @@ function parseTimeCST(timeStr) {
     return null;
   }
 
-  // CST = UTC-6
-  // To convert CST time to UTC: add 6 hours
-  // Example: 10:00 PM CST = 10 + 6 = 04:00 UTC next day
-  const utcDate = new Date(Date.UTC(
-    now.getUTCFullYear(),
-    now.getUTCMonth(),
-    now.getUTCDate(),
-    hours + 6,
+  // Get current time in CST (UTC-6)
+  const nowUTC = Date.now();
+  const cstDate = new Date(nowUTC - 6 * 60 * 60 * 1000);
+
+  // Build the target time using today's CST date + input hours/minutes
+  const targetCST = new Date(Date.UTC(
+    cstDate.getUTCFullYear(),
+    cstDate.getUTCMonth(),
+    cstDate.getUTCDate(),
+    hours,
     minutes,
     0
   ));
 
-  // If the computed UTC time is in the past, roll to tomorrow
-  if (utcDate.getTime() <= Date.now()) {
-    utcDate.setUTCDate(utcDate.getUTCDate() + 1);
+  // Convert back to real UTC (add 6 hours)
+  const targetUTC = new Date(targetCST.getTime() + 6 * 60 * 60 * 1000);
+
+  // If time already passed today in CST, schedule for tomorrow
+  if (targetUTC.getTime() <= nowUTC) {
+    targetUTC.setUTCDate(targetUTC.getUTCDate() + 1);
   }
 
-  return Math.floor(utcDate.getTime() / 1000);
+  return Math.floor(targetUTC.getTime() / 1000);
 }
 
 module.exports = {
