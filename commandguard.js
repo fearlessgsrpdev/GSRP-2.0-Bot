@@ -1,5 +1,3 @@
-// List of role IDs that are allowed to see and use any commands
-// Anyone without one of these roles will get a silent block
 const ALLOWED_ROLES = [
   '1491647546525880480', // Management
   '1491647546387333147', // Staff Manager
