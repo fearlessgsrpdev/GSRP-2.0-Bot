@@ -31,7 +31,8 @@ function parseTimeCST(timeStr) {
   } else { return null; }
 
   const utcDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hours + 6, minutes, 0));
-  if (utcDate.getTime() < Date.now()) utcDate.setUTCDate(utcDate.getUTCDate() + 1);
+  // Only roll to tomorrow if the time is genuinely in the past (over 1 minute ago)
+  if (utcDate.getTime() < Date.now() - 60_000) utcDate.setUTCDate(utcDate.getUTCDate() + 1);
   return Math.floor(utcDate.getTime() / 1000);
 }
 
