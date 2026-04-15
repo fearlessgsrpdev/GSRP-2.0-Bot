@@ -15,7 +15,6 @@ const TRAINING_LABELS = {
 };
 
 function parseTimeCST(timeStr) {
-  const now = new Date();
   const match12 = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
   const match24 = timeStr.trim().match(/^(\d{1,2}):(\d{2})$/);
   let hours, minutes;
@@ -30,9 +29,20 @@ function parseTimeCST(timeStr) {
     minutes = parseInt(match24[2]);
   } else { return null; }
 
-  const utcDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hours + 6, minutes, 0));
-  // Only roll to tomorrow if the time is genuinely in the past (over 1 minute ago)
-  if (utcDate.getTime() < Date.now() - 60_000) utcDate.setUTCDate(utcDate.getUTCDate() + 1);
+  // Get current date in CST (UTC-6)
+  const nowCST = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  const year = nowCST.getUTCFullYear();
+  const month = nowCST.getUTCMonth();
+  const day = nowCST.getUTCDate();
+
+  // Build the target time as UTC (CST input + 6hrs offset)
+  const utcDate = new Date(Date.UTC(year, month, day, hours + 6, minutes, 0));
+
+  // Only roll to tomorrow if already passed by more than 1 minute
+  if (utcDate.getTime() < Date.now() - 60_000) {
+    utcDate.setUTCDate(utcDate.getUTCDate() + 1);
+  }
+
   return Math.floor(utcDate.getTime() / 1000);
 }
 
