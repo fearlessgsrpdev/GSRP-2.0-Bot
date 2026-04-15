@@ -2,6 +2,18 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 
 const TRAINING_CHANNEL_ID = '1491647569053356156';
 
+// Sergeant+ can run training
+const ALLOWED_ROLES = [
+  '1491647546525880488', // Sergeant
+  '1491647546525880485', // Lieutenant
+  '1491647546525880482', // Captain
+  '1491647546387333148', // Major
+  '1491647546525880484', // Sr. Admin
+  '1491647546525880481', // Head Admin
+  '1491647546387333147', // Staff Manager
+  '1491647546525880480', // Management
+];
+
 const TRAINING_COLORS = {
   basic_cadet: 0x5865F2,
   fto_master:  0xED4245,
@@ -32,11 +44,9 @@ function parseTimeCST(timeStr) {
     return null;
   }
 
-  // Get current time in CST (UTC-6)
   const nowUTC = Date.now();
   const cstDate = new Date(nowUTC - 6 * 60 * 60 * 1000);
 
-  // Build the target time using today's CST date + input hours/minutes
   const targetCST = new Date(Date.UTC(
     cstDate.getUTCFullYear(),
     cstDate.getUTCMonth(),
@@ -46,10 +56,8 @@ function parseTimeCST(timeStr) {
     0
   ));
 
-  // Convert back to real UTC (add 6 hours)
   const targetUTC = new Date(targetCST.getTime() + 6 * 60 * 60 * 1000);
 
-  // If time already passed today in CST, schedule for tomorrow
   if (targetUTC.getTime() <= nowUTC) {
     targetUTC.setUTCDate(targetUTC.getUTCDate() + 1);
   }
@@ -72,6 +80,10 @@ module.exports = {
     .addStringOption(o => o.setName('notes').setDescription('Additional notes for trainees').setRequired(false)),
 
   async execute(interaction) {
+    const hasRole = ALLOWED_ROLES.some(r => interaction.member.roles.cache.has(r));
+    if (!hasRole)
+      return interaction.reply({ content: '🚫 You need to be **Sergeant or higher** to announce a training.', ephemeral: true });
+
     const type = interaction.options.getString('type');
     const timeStr = interaction.options.getString('time');
     const notes = interaction.options.getString('notes');
